@@ -95,16 +95,19 @@ local loop = function()
 		items_in_box[k] = v - (used_items_in_box[k] or 0)
 	end
 
+    local queue_add_task = function (output_label, items)
+        for _, input_item in ipairs(items) do
+            local label, size = table.unpack(input_item)
+            used_items_in_box[label] = (used_items_in_box[label] or 0) + size
+            items_in_box[label] = items_in_box[label] - size
+        end
+        queue_add_item(output_label)
+    end
     if #queue > 0 then
         local output_label = queue[1].output_label
         local items = recipes[output_label]
         while recipe.is_match(items, items_in_box) do
-            for _, input_item in ipairs(items) do
-                local label, size = table.unpack(input_item)
-                used_items_in_box[label] = (used_items_in_box[label] or 0) + size
-                items_in_box[label] = items_in_box[label] - size
-            end
-            queue_add_item(output_label)
+            queue_add_task(output_label, items)
         end
     elseif not assembly_line.isMachineActive() then
         local will_output_label,will_used_items = nil,nil
@@ -118,19 +121,13 @@ local loop = function()
 
         while will_used_items ~= nil and recipe.is_match(will_used_items, items_in_box) do
             -- print("match success! ", output_label, " will be process!")
-            for _, input_item in ipairs(will_used_items) do
-                local label, size = table.unpack(input_item)
-                used_items_in_box[label] = (used_items_in_box[label] or 0) + size
-                items_in_box[label] = items_in_box[label] - size
-            end
-            queue_add_item(will_output_label)
+            queue_add_task(will_output_label, will_used_items)
         end
     end
 
 	local process_flag
 	repeat
 		process_flag = 0
-		local item_slot_in_box = get_item_slot_in_box()
 		local last_status = 16
 		for _, process in ipairs(queue) do
 			local status = process.status
@@ -140,18 +137,22 @@ local loop = function()
 			last_status = status
 
 			local need_item_label, need_item_size = table.unpack(recipes[process.output_label][status])
-			local slot = item_slot_in_box[need_item_label]
+			local slot = get_item_slot_in_box()[need_item_label]
 			if slot == nil then
 				print("熊孩子乱拿？？")
 			end
 
 			local trans_count = transports[status].transferItem(input_side, output_side, need_item_size, slot, 1)
 			if trans_count > 0 then
-                local recipe_size = #recipes[process.output_label]
+                while trans_count < need_item_size do
+			        slot = get_item_slot_in_box()[need_item_label]
+                    trans_count = trans_count + transports[status].transferItem(input_side, output_side, need_item_size - trans_count, slot, 1)
+                end
 				-- print("process ", process.output_label, " is in ", status, "all has ", recipe_size)
-				used_items_in_box[need_item_label] = used_items_in_box[need_item_label] - need_item_size
+				used_items_in_box[need_item_label] = used_items_in_box[need_item_label] - trans_count
 				process.status = status + 1
-                if process.status > recipe_size then
+                local recipe_need_item_size = #recipes[process.output_label]
+                if process.status > recipe_need_item_size then
                     process_flag = 0
                     goto skip
                 end
