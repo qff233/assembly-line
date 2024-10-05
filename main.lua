@@ -3,6 +3,8 @@ local event = require("event")
 local config = require("config")
 local recipe = require("recipe")
 
+local item_map = require("item_map")
+
 local db = com.database
 
 local input_side = config.transport_input_side
@@ -38,9 +40,7 @@ local init = function()
 		table.insert(transports, com.proxy(address))
 	end
 
-    local address = config.assembly_line_address
-    assembly_line = com.proxy(address)
-    assert(assembly_line ~= nil, "assembly_line_address error, address: ", address)
+    assembly_line = com.gt_machine
 end
 
 local get_item_size_in_box = function()
@@ -51,7 +51,8 @@ local get_item_size_in_box = function()
 	for i = 0, #stacks do
 		local item = stacks[i]
 		if item.label ~= nil then
-			items[item.label] = (items[item.label] or 0) + item.size
+            local label = item_map[item.label] or item.label
+			items[label] = (items[label] or 0) + item.size
 		end
 	end
 	return items
@@ -65,7 +66,8 @@ local get_item_slot_in_box = function()
 	for i = 0, #stacks do
 		local item = stacks[i]
 		if item.label ~= nil then
-			items[item.label] = i + 1
+            local label = item_map[item.label] or item.label
+			items[label] = i + 1
 		end
 	end
 	return items
