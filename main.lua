@@ -73,19 +73,19 @@ local function get_item_slot_in_box()
     return items
 end
 
-local queue = {
+local poll = {
     -- {
     --    status: 1-16
     --    output_label: string
     -- }, .......
 }
 
-local function queue_add_item(output_label)
+local function poll_add_item(output_label)
     local item = {
         status = 1,
         output_label = output_label,
     }
-    table.insert(queue, item)
+    table.insert(poll, item)
 end
 
 local used_items_in_box = {}
@@ -104,7 +104,7 @@ local function loop()
             used_items_in_box[label] = (used_items_in_box[label] or 0) + size
             items_in_box[label] = items_in_box[label] - size
         end
-        queue_add_item(output_label)
+        poll_add_item(output_label)
     end
 
     local has_matched = false
@@ -115,7 +115,7 @@ local function loop()
             queue_add_task(last_output_label, items)
         end
     end
-    if not has_matched and not assembly_line.isMachineActive() then
+    if not has_matched and #poll == 0 and not assembly_line.isMachineActive() then
         local will_output_label, will_used_items = nil, nil
         for output_label, items in pairs(recipes) do
             if recipe.is_match(items, items_in_box) then
@@ -135,53 +135,60 @@ local function loop()
     local process_flag
     repeat
         process_flag = 0
-        local last_status = 16
-        for _, process in ipairs(queue) do
-            local status = process.status
-            if status >= last_status then
-                goto skip
-            end
-            last_status = status
-
-            local need_item_label, need_item_size = table.unpack(recipes[process.output_label][status])
-            local slot = get_item_slot_in_box()[need_item_label]
-            if slot == nil then
-                print("熊孩子乱拿？？")
-            end
-
-            local trans_count = transports[status].transferItem(input_side, output_side, need_item_size, slot, 1)
-            if trans_count > 0 then
-                while trans_count < need_item_size do
-                    slot = get_item_slot_in_box()[need_item_label]
-                    trans_count = trans_count +
-                        transports[status].transferItem(input_side, output_side, need_item_size - trans_count, slot, 1)
-                    print("try transfer Item need_item_size:", need_item_size, "from", slot, "trans_count:", trans_count)
+        for _, process in ipairs(poll) do
+            local trans_count
+            repeat
+                trans_count = 0
+                local need_item_label, need_item_size = table.unpack(recipes[process.output_label][process.status])
+                local slot = get_item_slot_in_box()[need_item_label]
+                if slot == nil then
+                    print("熊孩子乱拿？？")
                 end
-                used_items_in_box[need_item_label] = used_items_in_box[need_item_label] - trans_count
-                process.status = status + 1
-                local recipe_need_item_size = #recipes[process.output_label]
-                if process.status > recipe_need_item_size then
-                    process_flag = 0
-                    goto skip
+
+                local inputbus_item = transports[process.status].getStackInSlot(output_side, 1) or {}
+                local inputbus_item_size = inputbus_item.size or 0
+                local inputbus_item_max_size = inputbus_item.maxSize or 64
+                if inputbus_item_max_size - inputbus_item_size >= need_item_size then
+                    trans_count = transports[process.status].transferItem(input_side, output_side, need_item_size, slot,
+                        1)
                 end
-                process_flag = 1
-            end
+                if trans_count > 0 then
+                    while trans_count < need_item_size do
+                        slot = get_item_slot_in_box()[need_item_label]
+                        trans_count = trans_count +
+                            transports[process.status].transferItem(input_side, output_side, need_item_size - trans_count,
+                                slot,
+                                1)
+                        -- print("try transfer Item need_item_size:", need_item_size, "from", slot, "trans_count:", trans_count)
+                    end
+                    used_items_in_box[need_item_label] = used_items_in_box[need_item_label] - trans_count
+                    process.status = process.status + 1
+                    local recipe_need_item_size = #recipes[process.output_label]
+                    if process.status > recipe_need_item_size then
+                        goto skip
+                    end
+                    process_flag = 1
+                end
+            until trans_count == 0
         end
         ::skip::
-        if #queue > 0 and queue[1].status > #recipes[queue[1].output_label] then
-            print(queue[1].output_label, " process done!")
-            process_flag = 0
-            table.remove(queue, 1)
+
+        for i, process in ipairs(poll) do
+            if process.status > #recipes[process.output_label] then
+                print(poll[1].output_label, " process done!")
+                process_flag = 0
+                table.remove(poll, i)
+            end
         end
     until process_flag == 0
 
-    if #queue > 0 then
+    if #poll > 0 then
         print("---------------------------", output_count)
         output_count = output_count + 1
     end
-    for i = 1, #queue do
-        local output_label = queue[i].output_label
-        print(output_label, ": ", queue[i].status, "all:", #recipes[output_label])
+    for i = 1, #poll do
+        local output_label = poll[i].output_label
+        print(output_label, ": ", poll[i].status, "all:", #recipes[output_label])
     end
 end
 
