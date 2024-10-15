@@ -1,3 +1,5 @@
+---@meta
+
 local com = require("component")
 local event = require("event")
 local config = require("config")
@@ -10,7 +12,7 @@ local db = com.database
 local input_side = config.transport_input_side
 local output_side = config.transport_output_side
 
-local recipes = {}
+local recipes = {} ---@type table<string,[[string,number]]>
 local transports = {}
 local assembly_line
 
@@ -43,6 +45,7 @@ local function init()
     assembly_line = com.gt_machine
 end
 
+---@return table<string, number>
 local function get_item_size_in_box()
     local trans = transports[1]
 
@@ -58,6 +61,7 @@ local function get_item_size_in_box()
     return items
 end
 
+---@return table<string, number>
 local function get_item_slot_in_box()
     local trans = transports[1]
 
@@ -73,22 +77,20 @@ local function get_item_slot_in_box()
     return items
 end
 
-local poll = {
-    -- {
-    --    status: 1-16
-    --    output_label: string
-    -- }, .......
-}
+---@class poll:[{["status"]:number,["output_label"]:string}]
+local poll = {}
 
-local function poll_add_item(output_label)
+function poll:add_item(output_label)
     local item = {
         status = 1,
         output_label = output_label,
     }
-    table.insert(poll, item)
+    table.insert(self, item)
 end
 
+---@type table<string,number>
 local used_items_in_box = {}
+
 local output_count = 0
 local last_output_label = nil
 local function loop()
@@ -98,13 +100,13 @@ local function loop()
         items_in_box[k] = v - (used_items_in_box[k] or 0)
     end
 
-    local queue_add_task = function(output_label, items)
+    local add_task = function(output_label, items)
         for _, input_item in ipairs(items) do
             local label, size = table.unpack(input_item)
             used_items_in_box[label] = (used_items_in_box[label] or 0) + size
             items_in_box[label] = items_in_box[label] - size
         end
-        poll_add_item(output_label)
+        poll:add_item(output_label)
     end
 
     local has_matched = false
@@ -112,7 +114,7 @@ local function loop()
         local items = recipes[last_output_label]
         while recipe.is_match(items, items_in_box) do
             has_matched = true
-            queue_add_task(last_output_label, items)
+            add_task(last_output_label, items)
         end
     end
     if not has_matched and #poll == 0 and not assembly_line.isMachineActive() then
@@ -128,7 +130,7 @@ local function loop()
 
         while will_used_items ~= nil and recipe.is_match(will_used_items, items_in_box) do
             -- print("match success! ", output_label, " will be process!")
-            queue_add_task(will_output_label, will_used_items)
+            add_task(will_output_label, will_used_items)
         end
     end
 
